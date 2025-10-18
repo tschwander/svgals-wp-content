@@ -288,7 +288,7 @@ class TEC_API_Sync {
         echo '<p><button id="add-team" class="button" type="button">Team hinzufügen</button></p>';
 
         $teams_json = esc_attr(json_encode($teams));
-        printf('<input type="hidden" id="tec-teams-json" name="%s[teams_json]" value='%s'>', esc_attr($this->option_name), $teams_json);
+        printf('<input type="hidden" id="tec-teams-json" name="%s[teams_json]" value="%s">', esc_attr($this->option_name), $teams_json);
 
         echo "<script>(function(){const tbody=document.getElementById('tec-teams-body');const addBtn=document.getElementById('add-team');const jsonInput=document.getElementById('tec-teams-json');function saveJson(){const rows=tbody.querySelectorAll('tr');const arr=Array.from(rows).map(r=>({id:r.querySelector('.team-id').value,prefix:r.querySelector('.team-prefix').value}));jsonInput.value=JSON.stringify(arr);}addBtn.addEventListener('click',function(){const tr=document.createElement('tr');tr.innerHTML='<td><input type=\'text\' class=\'team-id\'></td><td><input type=\'text\' class=\'team-prefix\'></td><td><button class=\'button remove-team\' type=\'button\'>Entfernen</button></td>';tbody.appendChild(tr);attachRemove(tr);saveJson();});function attachRemove(tr){const btn=tr.querySelector('.remove-team');btn.addEventListener('click',()=>{tr.remove();saveJson();});['change','input'].forEach(ev=>{tr.querySelectorAll('input').forEach(i=>i.addEventListener(ev,saveJson));});}tbody.querySelectorAll('tr').forEach(r=>attachRemove(r));document.querySelector('form').addEventListener('submit',saveJson);})();</script>";
         echo '</div>';
