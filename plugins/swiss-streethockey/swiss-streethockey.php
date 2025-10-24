@@ -405,29 +405,29 @@ class TEC_API_Sync {
                     ];
                 }
             } else {
+                foreach ($spiele as $spiel) {
+                    $datum = (string)$spiel->datum;
+                    $heim = (string)$spiel->heim;
+                    $gast = (string)$spiel->gast;
+                    $ort = (string)$spiel->spielort;
+                    $liga = (string)$spiel->liga;
 
-            foreach ($spiele as $spiel) {
-                $datum = (string)$spiel->datum;
-                $heim = (string)$spiel->heim;
-                $gast = (string)$spiel->gast;
-                $ort = (string)$spiel->spielort;
-                $liga = (string)$spiel->liga;
+                    // Präfix erweitern, wenn 'cup' oder 'playoffs' vorkommt
+                    $prefix = $team['prefix'];
+                    if (stripos($liga,'cup')!==false) $prefix .= ' (Cup)';
+                    if (stripos($liga,'playoffs')!==false) $prefix .= ' (Playoffs)';
 
-                // Präfix erweitern, wenn 'cup' oder 'playoffs' vorkommt
-                $prefix = $team['prefix'];
-                if (stripos($liga,'cup')!==false) $prefix .= ' (Cup)';
-                if (stripos($liga,'playoffs')!==false) $prefix .= ' (Playoffs)';
-
-                $events[] = [
-                    'title'=>$prefix.': '.$heim.' – '.$gast,
-                    'start'=>date('Y-m-d H:i:s',strtotime($datum)),
-                    'end'=>date('Y-m-d H:i:s',strtotime($datum)),
-                    'venue'=>$ort,
-                    'team_prefix'=>$prefix,
-                    'category_id'=>$team['category'],
-                    'category_name'=>get_term($team['category'])->name ?? '',
-                    'is_tournament'=>false
-                ];
+                    $events[] = [
+                        'title'=>$prefix.': '.$heim.' – '.$gast,
+                        'start'=>date('Y-m-d H:i:s',strtotime($datum)),
+                        'end'=>date('Y-m-d H:i:s',strtotime($datum)),
+                        'venue'=>$ort,
+                        'team_prefix'=>$prefix,
+                        'category_id'=>$team['category'],
+                        'category_name'=>get_term($team['category'])->name ?? '',
+                        'is_tournament'=>false
+                    ];
+                }
             }
         }
         return $events;
