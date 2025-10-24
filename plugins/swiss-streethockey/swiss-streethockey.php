@@ -367,7 +367,7 @@ class TEC_API_Sync {
         <?php return ob_get_clean();
     }
 
-    private function fetch_api_events($opts) {
+    protected function fetch_api_events($opts) {
         $events = [];
         if (empty($opts['api_endpoint']) || empty($opts['teams'])) return [];
 
@@ -433,7 +433,7 @@ class TEC_API_Sync {
         return $events;
     }
 
-    private function get_local_events($opts, $team_cat_ids) {
+    protected function get_local_events($opts, $team_cat_ids) {
         $args = [
             'post_type'=>'tribe_events',
             'posts_per_page'=>-1,
@@ -450,14 +450,14 @@ class TEC_API_Sync {
         return get_posts($args);
     }
 
-    private function find_match($api_event,$local_events){
+    protected function find_match($api_event,$local_events){
         foreach($local_events as $local){
             if($this->is_same_event($api_event,$local)) return $local;
         }
         return null;
     }
 
-    private function is_same_event($api_event,$local){
+    protected function is_same_event($api_event,$local){
         $local_date = get_post_meta($local->ID,'_EventStartDate',true);
         $local_day = date('Y-m-d',strtotime($local_date));
         $api_day = date('Y-m-d',strtotime($api_event['start']));
