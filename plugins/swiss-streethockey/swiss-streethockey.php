@@ -547,8 +547,16 @@ class TEC_API_Sync_Cron extends TEC_API_Sync {
                         'post_status' => 'publish'
                     ]);
                     if ($post_id) {
+                        $timezone = 'Europe/Zurich';
                         update_post_meta($post_id, '_EventStartDate', $event['start']);
                         update_post_meta($post_id, '_EventEndDate', $event['end']);
+                        update_post_meta($post_id, '_EventTimezone', $timezone);
+
+                        $start_utc = get_gmt_from_date($event['start']);
+                        $end_utc   = get_gmt_from_date($event['end']);
+                        update_post_meta($post_id, '_EventStartDateUTC', $start_utc);
+                        update_post_meta($post_id, '_EventEndDateUTC', $end_utc);
+                        
                         if (empty($venue_id)) {
                             $new_venue = wp_insert_post([
                                 'post_title'  => wp_strip_all_tags($venue_name),
