@@ -518,10 +518,10 @@ class TEC_API_Sync_Cron extends TEC_API_Sync {
                 if (!$match) {
                     $venue_name = ($event['venue'] === 'Gals') ? 'tschilar baut Arena' : $event['venue'];
 
-                    $venue_term = get_term_by('name', $venue_name, 'tribe_venue');
+                    $venue_post = get_page_by_title($venue_name, OBJECT, 'tribe_venue');
 
-                    $log[] = "✅ Venue Term: ".$venue_name;
-                    $log[] = "✅ Category : ".term_exists($event['category_id'], 'tribe_events_cat');
+                    $log[] = "✅ Venue id: ".$venue_post;
+                    $log[] = "✅ Category : ".term_exists((int)$event['category_id'], 'tribe_events_cat');
 
                     /*
                     $post_id = wp_insert_post([
@@ -532,18 +532,22 @@ class TEC_API_Sync_Cron extends TEC_API_Sync {
                     if ($post_id) {
                         update_post_meta($post_id, '_EventStartDate', $event['start']);
                         update_post_meta($post_id, '_EventEndDate', $event['end']);
-                        $venue_term = get_term_by('name', $venue_name, 'tribe_venue');
-                        if (!$venue_term) {
-                            // Venue erstellen, falls nicht vorhanden
-                            $venue_term_id = wp_insert_term($venue_name, 'tribe_venue');
-                            if (!is_wp_error($venue_term_id)) {
-                                $venue_term = get_term($venue_term_id['term_id'], 'tribe_venue');
-                            }
+                        $venue_post = get_page_by_title($venue_name, OBJECT, 'tribe_venue');
+                        
+                        if (!$venue_post) {
+                            // Venue erstellen, falls sie nicht existiert
+                            $venue_id = wp_insert_post([
+                                'post_title'  => $venue_name,
+                                'post_status' => 'publish',
+                                'post_type'   => 'tribe_venue',
+                            ]);
+                        } else {
+                            $venue_id = $venue_post->ID;
                         }
 
-                        // Venue für Event setzen
-                        if ($venue_term) {
-                            update_post_meta($post_id, '_EventVenueID', $venue_term->term_id);
+                        // Wenn erfolgreich, mit Event verknüpfen
+                        if (!empty($venue_id) && !is_wp_error($venue_id)) {
+                            update_post_meta($post_id, '_EventVenueID', $venue_id);
                         }
 
                         $term_ids = [];
