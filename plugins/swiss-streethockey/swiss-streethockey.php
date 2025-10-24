@@ -474,3 +474,81 @@ class TEC_API_Sync {
 }
 
 new TEC_API_Sync();
+
+
+class TEC_API_Sync_Cron extends TEC_API_Sync {
+    private $log_option = 'tec_sync_log';
+
+    public function __construct() {
+        parent::__construct();
+        add_action('tec_sync_cron_hook', [$this, 'run_cron_sync']);
+
+        if (!wp_next_scheduled('tec_sync_cron_hook')) {
+            wp_schedule_event(time(), 'hourly', 'tec_sync_cron_hook');
+        }
+
+        add_action('admin_menu', [$this,'log_page']);
+    }
+
+    public function run_cron_sync() {
+        $opts = get_option($this->option_name, []);
+        $api_events = $this->fetch_api_events($opts);
+        $team_cat_ids = array_map(fn($t)=>$t['category'], $opts['teams']);
+        $local_events = $this->get_local_events($opts, $team_cat_ids);
+
+        $log = [];
+
+        // Neue Events anlegen
+        foreach ($api_events as $event) {
+            $match = $this->find_match($event, $local_events);
+            if (!$match) {
+                $venue = ($event['venue']==='Gals') ? 'tschilar baut Arena' : $event['venue'];
+                $post_id = wp_insert_post([
+                    'post_title' => $event['title'],
+                    'post_type' => 'tribe_events',
+                    'post_status' => 'publish'
+                ]);
+                if ($post_id) {
+                    update_post_meta($post_id, '_EventStartDate', $event['start']);
+                    update_post_meta($post_id, '_EventEndDate', $event['end']);
+                    update_post_meta($post_id, '_Venue', $venue);
+                    wp_set_object_terms($post_id, [$event['category_id'], $opts['general_category']], 'tribe_events_cat');
+                    $log[] = "✅ Neues Event erstellt: <a href='".get_edit_post_link($post_id)."'>".$event['title']."</a>";
+                }
+            }
+        }
+
+        // Lokale Events in Papierkorb verschieben, die zuviel sind
+        foreach ($local_events as $local) {
+            $found = false;
+            foreach ($api_events as $event) {
+                if ($this->is_same_event($event,$local)) { $found=true; break; }
+            }
+            if (!$found) {
+                wp_trash_post($local->ID);
+                $log[] = "🗑️ Event verschoben in Papierkorb: <a href='".get_edit_post_link($local->ID)."'>".$local->post_title."</a>";
+            }
+        }
+
+        update_option($this->log_option, $log);
+    }
+
+    public function log_page() {
+        add_submenu_page('tec-sync','TEC Sync Log','Sync Log','manage_options', 'tec-sync-log', function(){
+            if (isset($_POST['tec_sync_clear_log'])) {
+                update_option($this->log_option, []);
+                echo '<div class="updated"><p>Log geleert.</p></div>';
+            }
+            $log = get_option($this->log_option, []);
+            ?>
+            <div class="wrap">
+                <h1>TEC Sync Log</h1>
+                <form method="post"><p><input type="submit" name="tec_sync_clear_log" class="button button-secondary" value="Log leeren"></p></form>
+                <ul><?php foreach ($log as $entry) echo '<li>'.$entry.'</li>'; ?></ul>
+            </div>
+            <?php
+        });
+    }
+}
+
+new TEC_API_Sync_Cron();
