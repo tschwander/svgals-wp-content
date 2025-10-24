@@ -379,6 +379,33 @@ class TEC_API_Sync {
             if (!$xml || empty($xml->Spiel)) continue;
 
             $spiele = $xml->Spiel;
+            if (!empty($team['is_tournament'])) {
+                $grouped = [];
+                foreach ($spiele as $spiel) {
+                    $day = date('Y-m-d', strtotime((string)$spiel->datum));
+                    $ort = (string)$spiel->spielort;
+                    $key = $day.'|'.$ort;
+                    if (!isset($grouped[$key])) $grouped[$key] = [];
+                    $grouped[$key][] = $spiel;
+                }
+                foreach ($grouped as $key=>$spieleTag) {
+                    [$day,$ort] = explode('|',$key);
+                    $times = array_map(fn($s)=>strtotime((string)$s->datum), $spieleTag);
+                    $start = min($times);
+                    $end = max($times)+3600;
+                    $events[] = [
+                        'title'=>$team['prefix'].': Turnier in '.$ort,
+                        'start'=>date('Y-m-d H:i:s',$start),
+                        'end'=>date('Y-m-d H:i:s',$end),
+                        'venue'=>$ort,
+                        'team_prefix'=>$team['prefix'],
+                        'category_id'=>$team['category'],
+                        'category_name'=>get_term($team['category'])->name ?? '',
+                        'is_tournament'=>true
+                    ];
+                }
+            } else {
+
             foreach ($spiele as $spiel) {
                 $datum = (string)$spiel->datum;
                 $heim = (string)$spiel->heim;
@@ -434,7 +461,12 @@ class TEC_API_Sync {
         $local_date = get_post_meta($local->ID,'_EventStartDate',true);
         $local_day = date('Y-m-d',strtotime($local_date));
         $api_day = date('Y-m-d',strtotime($api_event['start']));
-        return strcasecmp($local->post_title,$api_event['title'])===0 && $local_day===$api_day;
+        if($api_event['is_tournament']){
+            $cats = wp_get_post_terms($local->ID,'tribe_events_cat',['fields'=>'ids']);
+            return ($local_day===$api_day && in_array($api_event['category_id'],$cats));
+        }else{
+            return (strcasecmp($local->post_title,$api_event['title'])===0 && $local_day===$api_day);
+        }
     }
 
     public function tec_sync_run_comparison(){}
