@@ -515,7 +515,8 @@ class TEC_API_Sync_Cron extends TEC_API_Sync {
             foreach ($api_events as $event) {
                 $match = $this->find_match($event, $local_events);
                 if (!$match) {
-                    $venue = ($event['venue']==='Gals') ? 'tschilar baut Arena' : $event['venue'];
+                    $venue_name = ($event['venue'] === 'Gals') ? 'tschilar baut Arena' : $event['venue'];
+
                     $post_id = wp_insert_post([
                         'post_title' => $event['title'],
                         'post_type' => 'tribe_events',
@@ -524,8 +525,35 @@ class TEC_API_Sync_Cron extends TEC_API_Sync {
                     if ($post_id) {
                         update_post_meta($post_id, '_EventStartDate', $event['start']);
                         update_post_meta($post_id, '_EventEndDate', $event['end']);
-                        update_post_meta($post_id, '_Venue', $venue);
-                        wp_set_object_terms($post_id, [$event['category_id'], $opts['general_category']], 'tribe_events_cat');
+                        $venue_term = get_term_by('name', $venue_name, 'tribe_venue');
+                        if (!$venue_term) {
+                            // Venue erstellen, falls nicht vorhanden
+                            $venue_term_id = wp_insert_term($venue_name, 'tribe_venue');
+                            if (!is_wp_error($venue_term_id)) {
+                                $venue_term = get_term($venue_term_id['term_id'], 'tribe_venue');
+                            }
+                        }
+
+                        // Venue für Event setzen
+                        if ($venue_term) {
+                            update_post_meta($post_id, '_EventVenueID', $venue_term->term_id);
+                        }
+
+                        $term_ids = [];
+
+                        // Team-Kategorie prüfen
+                        if (term_exists($event['category_id'], 'tribe_events_cat')) {
+                            $term_ids[] = (int)$event['category_id'];
+                        }
+
+                        // Allgemeine Kategorie hinzufügen
+                        if (!empty($opts['general_category']) && term_exists($opts['general_category'], 'tribe_events_cat')) {
+                            $term_ids[] = (int)$opts['general_category'];
+                        }
+
+                        if (!empty($term_ids)) {
+                            wp_set_object_terms($post_id, $term_ids, 'tribe_events_cat');
+                        }
                         $log[] = "✅ Neues Event erstellt: <a href='".get_edit_post_link($post_id)."'>".$event['title']."</a>";
                     }
                 }
@@ -543,10 +571,10 @@ class TEC_API_Sync_Cron extends TEC_API_Sync {
                 }
             }
             
-            $log[] = '⏱ Cronjob erfolgreich ausgeführt am ' . current_time('Y-m-d H:i:s');
+            //$log[] = '⏱ Cronjob erfolgreich ausgeführt am ' . current_time('Y-m-d H:i:s');
 
         } catch (Exception $e) {
-            $log[] = "⚠️ Exception: ".$e->getMessage();
+            //$log[] = "⚠️ Exception: ".$e->getMessage();
         }
 
         update_option($this->log_option, $log);
