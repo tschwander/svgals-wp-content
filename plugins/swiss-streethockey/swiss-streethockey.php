@@ -192,7 +192,7 @@ add_shortcode('ssha_spieler', 'ssha_spieler');
 
 
 class TEC_API_Sync {
-    private $option_name = 'tec_sync_options';
+    protected $option_name = 'tec_sync_options';
 
     public function __construct() {
         add_action('admin_menu', [$this, 'register_menu']);
