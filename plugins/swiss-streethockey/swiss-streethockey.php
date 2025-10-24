@@ -520,8 +520,8 @@ class TEC_API_Sync_Cron extends TEC_API_Sync {
 
                     $venue_term = get_term_by('name', $venue_name, 'tribe_venue');
 
-                    $log[] = "✅ Venue Term: ".$venue_term;
-                    $log[] = "✅ Category : ".(int)$event['category_id'];;
+                    $log[] = "✅ Venue Term: ".$venue_name;
+                    $log[] = "✅ Category : ".term_exists($event['category_id'], 'tribe_events_cat');
 
                     /*
                     $post_id = wp_insert_post([
