@@ -576,7 +576,6 @@ class TEC_API_Sync_Cron extends TEC_API_Sync {
                         // Venue-ID dem Event zuweisen, falls vorhanden
                         if (!empty($venue_id)) {
                             update_post_meta($post_id, '_EventVenueID', $venue_id);
-                            $log[] = "📍 Venue zugewiesen: " . esc_html($venue_name) . " (ID: $venue_id) für Event " . esc_html($event['title']);
                         } else {
                             $log[] = "⚠️ Keine Venue-ID gefunden/erstellt für Event " . esc_html($event['title']) . " (Venue: " . esc_html($venue_name) . ")";
                         }
