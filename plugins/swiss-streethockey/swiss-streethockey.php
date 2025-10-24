@@ -491,52 +491,69 @@ class TEC_API_Sync_Cron extends TEC_API_Sync {
     }
 
     public function run_cron_sync() {
-    $log = get_option($this->log_option, []);
-    
-    try {
-        $opts = get_option($this->option_name, []);
-        $api_events = $this->fetch_api_events($opts);
-        $team_cat_ids = array_map(fn($t)=>$t['category'], $opts['teams']);
-        $local_events = $this->get_local_events($opts, $team_cat_ids);
+        $log = get_option($this->log_option, []);
 
-        // Neue Events anlegen
-        foreach ($api_events as $event) {
-            $match = $this->find_match($event, $local_events);
-            if (!$match) {
-                $venue = ($event['venue']==='Gals') ? 'tschilar baut Arena' : $event['venue'];
-                $post_id = wp_insert_post([
-                    'post_title' => $event['title'],
-                    'post_type' => 'tribe_events',
-                    'post_status' => 'publish'
-                ]);
-                if ($post_id) {
-                    update_post_meta($post_id, '_EventStartDate', $event['start']);
-                    update_post_meta($post_id, '_EventEndDate', $event['end']);
-                    update_post_meta($post_id, '_Venue', $venue);
-                    wp_set_object_terms($post_id, [$event['category_id'], $opts['general_category']], 'tribe_events_cat');
-                    $log[] = "✅ Neues Event erstellt: <a href='".get_edit_post_link($post_id)."'>".$event['title']."</a>";
+        // Fehler-Handler, der alles ins Log schreibt
+        set_error_handler(function($errno, $errstr, $errfile, $errline) use (&$log){
+            $log[] = "⚠️ PHP Fehler: [$errno] $errstr in $errfile:$errline";
+            update_option('tec_sync_log', $log);
+            return true; // verhindert Standardanzeige
+        });
+
+        // Optional auch Exceptions abfangen
+        try {
+            $opts = get_option($this->option_name, []);
+            if (empty($opts['teams'])) throw new Exception('Keine Teams konfiguriert!');
+            $api_events = $this->fetch_api_events($opts);
+            if (is_wp_error($api_events)) throw new Exception('API Fehler: '.$api_events->get_error_message());
+
+            $team_cat_ids = array_map(fn($t)=>$t['category'], $opts['teams']);
+            $local_events = $this->get_local_events($opts, $team_cat_ids);
+
+            // Deine Logik für neue Events und Papierkorb...
+            // Neue Events anlegen
+            foreach ($api_events as $event) {
+                $match = $this->find_match($event, $local_events);
+                if (!$match) {
+                    $venue = ($event['venue']==='Gals') ? 'tschilar baut Arena' : $event['venue'];
+                    $post_id = wp_insert_post([
+                        'post_title' => $event['title'],
+                        'post_type' => 'tribe_events',
+                        'post_status' => 'publish'
+                    ]);
+                    if ($post_id) {
+                        update_post_meta($post_id, '_EventStartDate', $event['start']);
+                        update_post_meta($post_id, '_EventEndDate', $event['end']);
+                        update_post_meta($post_id, '_Venue', $venue);
+                        wp_set_object_terms($post_id, [$event['category_id'], $opts['general_category']], 'tribe_events_cat');
+                        $log[] = "✅ Neues Event erstellt: <a href='".get_edit_post_link($post_id)."'>".$event['title']."</a>";
+                    }
                 }
             }
+
+            // Lokale Events in Papierkorb verschieben
+            foreach ($local_events as $local) {
+                $found = false;
+                foreach ($api_events as $event) {
+                    if ($this->is_same_event($event,$local)) { $found=true; break; }
+                }
+                if (!$found) {
+                    wp_trash_post($local->ID);
+                    $log[] = "🗑️ Event verschoben in Papierkorb: <a href='".get_edit_post_link($local->ID)."'>".$local->post_title."</a>";
+                }
+            }
+            
+            $log[] = '⏱ Cronjob erfolgreich ausgeführt am ' . current_time('Y-m-d H:i:s');
+
+        } catch (Exception $e) {
+            $log[] = "⚠️ Exception: ".$e->getMessage();
         }
 
-        // Lokale Events in Papierkorb verschieben
-        foreach ($local_events as $local) {
-            $found = false;
-            foreach ($api_events as $event) {
-                if ($this->is_same_event($event,$local)) { $found=true; break; }
-            }
-            if (!$found) {
-                wp_trash_post($local->ID);
-                $log[] = "🗑️ Event verschoben in Papierkorb: <a href='".get_edit_post_link($local->ID)."'>".$local->post_title."</a>";
-            }
-        }
-        
-    } catch (Exception $e) {
-        $log[] = "⚠️ Fehler beim Cron: ".$e->getMessage();
+        update_option($this->log_option, $log);
+
+        restore_error_handler();
     }
 
-    update_option($this->log_option, $log);
-    }
 
 
     public function log_page() {
