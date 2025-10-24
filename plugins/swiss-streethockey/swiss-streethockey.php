@@ -518,9 +518,29 @@ class TEC_API_Sync_Cron extends TEC_API_Sync {
                 if (!$match) {
                     $venue_name = ($event['venue'] === 'Gals') ? 'tschilar baut Arena' : $event['venue'];
 
-                    $venue_post = get_page_by_title($venue_name, OBJECT, 'tribe_venue');
+                    $venue_id = 0;
 
-                    $log[] = "✅ Venue id: ".$venue_post;
+                    // Suche nach vorhandener tribe_venue per WP_Query (suchen & exakter Titelabgleich)
+                    $venue_query = new WP_Query([
+                        'post_type'      => 'tribe_venue',
+                        'post_status'    => 'any',
+                        'posts_per_page' => 5,       // etwas größer falls fuzzy search, wir prüfen später exakt
+                        's'              => $venue_name
+                    ]);
+
+                    if ($venue_query->have_posts()) {
+                        foreach ($venue_query->posts as $vpost) {
+                            // exakter Titelabgleich (case-insensitive, ohne HTML)
+                            if (strcasecmp(trim($vpost->post_title), trim($venue_name)) === 0) {
+                                $venue_id = (int) $vpost->ID;
+                                break;
+                            }
+                        }
+                    }
+                    wp_reset_postdata();
+
+
+                    $log[] = "✅ Venue id: ".$venue_id;
                     $log[] = "✅ Category : ".term_exists((int)$event['category_id'], 'tribe_events_cat');
 
                     /*
