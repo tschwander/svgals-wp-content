@@ -514,9 +514,16 @@ class TEC_API_Sync_Cron extends TEC_API_Sync {
             // Neue Events anlegen
             foreach ($api_events as $event) {
                 $match = $this->find_match($event, $local_events);
+
                 if (!$match) {
                     $venue_name = ($event['venue'] === 'Gals') ? 'tschilar baut Arena' : $event['venue'];
 
+                    $venue_term = get_term_by('name', $venue_name, 'tribe_venue');
+
+                    $log[] = "✅ Venue Term: ".$venue_term;
+                    $log[] = "✅ Category : ".(int)$event['category_id'];;
+
+                    /*
                     $post_id = wp_insert_post([
                         'post_title' => $event['title'],
                         'post_type' => 'tribe_events',
@@ -556,6 +563,7 @@ class TEC_API_Sync_Cron extends TEC_API_Sync {
                         }
                         $log[] = "✅ Neues Event erstellt: <a href='".get_edit_post_link($post_id)."'>".$event['title']."</a>";
                     }
+                    */
                 }
             }
 
