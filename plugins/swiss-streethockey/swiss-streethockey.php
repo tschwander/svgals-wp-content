@@ -210,6 +210,7 @@ class TEC_API_Sync {
     public function settings_page() {
         $opts = get_option($this->option_name, [
             'api_endpoint' => '',
+            'general_category' => '',
             'start_date' => '',
             'end_date' => '',
             'teams' => []
@@ -223,11 +224,23 @@ class TEC_API_Sync {
             <h1>TEC API Sync</h1>
             <form method="post" action="options.php">
                 <?php settings_fields('tec_sync_group'); ?>
+
                 <h2>Allgemeine Einstellungen</h2>
                 <table class="form-table">
                     <tr>
                         <th><label for="api_endpoint">API Endpoint</label></th>
                         <td><input type="text" name="<?php echo $this->option_name; ?>[api_endpoint]" value="<?php echo esc_attr($opts['api_endpoint']); ?>" class="regular-text" /></td>
+                    </tr>
+                    <tr>
+                        <th><label for="general_category">Allgemeine Kategorie</label></th>
+                        <td>
+                            <select name="<?php echo $this->option_name; ?>[general_category]">
+                                <?php $cats = get_terms(['taxonomy'=>'tribe_events_cat','hide_empty'=>false]);
+                                foreach($cats as $cat) : ?>
+                                    <option value="<?php echo $cat->term_id; ?>" <?php selected($opts['general_category'], $cat->term_id); ?>><?php echo esc_html($cat->name); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
                     </tr>
                     <tr>
                         <th><label for="start_date">Startdatum</label></th>
@@ -244,14 +257,13 @@ class TEC_API_Sync {
                     <thead><tr><th>Team ID</th><th>Titel-Präfix</th><th>Kategorie</th><th>Turnier</th><th></th></tr></thead>
                     <tbody>
                     <?php $teams = is_array($opts['teams']) ? $opts['teams'] : [];
-                    $event_cats = get_terms(['taxonomy' => 'tribe_events_cat', 'hide_empty' => false]);
                     foreach ($teams as $i => $team): ?>
                         <tr>
                             <td><input type="text" name="<?php echo $this->option_name; ?>[teams][<?php echo $i; ?>][id]" value="<?php echo esc_attr($team['id']); ?>" /></td>
                             <td><input type="text" name="<?php echo $this->option_name; ?>[teams][<?php echo $i; ?>][prefix]" value="<?php echo esc_attr($team['prefix']); ?>" /></td>
                             <td>
                                 <select name="<?php echo $this->option_name; ?>[teams][<?php echo $i; ?>][category]">
-                                    <?php foreach ($event_cats as $cat): ?>
+                                    <?php foreach ($cats as $cat): ?>
                                         <option value="<?php echo $cat->term_id; ?>" <?php selected($team['category'], $cat->term_id); ?>><?php echo esc_html($cat->name); ?></option>
                                     <?php endforeach; ?>
                                 </select>
@@ -272,7 +284,7 @@ class TEC_API_Sync {
                         <td><input type="text" name="<?php echo $this->option_name; ?>[teams][${index}][id]" /></td>
                         <td><input type="text" name="<?php echo $this->option_name; ?>[teams][${index}][prefix]" /></td>
                         <td><select name="<?php echo $this->option_name; ?>[teams][${index}][category]">
-                            <?php foreach ($event_cats as $cat): ?>
+                            <?php foreach ($cats as $cat): ?>
                                 <option value="<?php echo $cat->term_id; ?>"><?php echo esc_html($cat->name); ?></option>
                             <?php endforeach; ?>
                         </select></td>
@@ -299,7 +311,8 @@ class TEC_API_Sync {
 
     private function generate_preview($opts) {
         $api_events = $this->fetch_api_events($opts);
-        $local_events = $this->get_local_events($opts);
+        $team_cat_ids = array_map(fn($t)=>$t['category'], $opts['teams']);
+        $local_events = $this->get_local_events($opts, $team_cat_ids);
 
         $rows = [];
         foreach ($api_events as $event) {
@@ -307,12 +320,14 @@ class TEC_API_Sync {
             $rows[] = [
                 'team' => $event['team_prefix'],
                 'category' => $event['category_name'],
+                'general_category' => get_term($opts['general_category'])->name ?? '',
                 'is_tournament' => $event['is_tournament'],
                 'api_title' => $event['title'],
                 'local_title' => $match ? $match->post_title : '—',
                 'status' => $match ? '✅ Match' : '⚠️ Fehlt lokal'
             ];
         }
+
         foreach ($local_events as $local) {
             $found = false;
             foreach ($api_events as $event) {
@@ -322,6 +337,7 @@ class TEC_API_Sync {
                 $rows[] = [
                     'team' => '-',
                     'category' => '-',
+                    'general_category' => '-',
                     'is_tournament' => false,
                     'api_title' => '—',
                     'local_title' => $local->post_title,
@@ -333,12 +349,13 @@ class TEC_API_Sync {
         ob_start(); ?>
         <h2>Vorschau</h2>
         <table class="widefat">
-            <thead><tr><th>Team</th><th>Kategorie</th><th>Turnier</th><th>API Event</th><th>Lokales Event</th><th>Status</th></tr></thead>
+            <thead><tr><th>Team</th><th>Kategorie</th><th>Allgemeine Kategorie</th><th>Turnier</th><th>API Event</th><th>Lokales Event</th><th>Status</th></tr></thead>
             <tbody>
             <?php foreach ($rows as $r): ?>
                 <tr>
                     <td><?php echo esc_html($r['team']); ?></td>
                     <td><?php echo esc_html($r['category']); ?></td>
+                    <td><?php echo esc_html($r['general_category']); ?></td>
                     <td><?php echo $r['is_tournament'] ? '✓' : '–'; ?></td>
                     <td><?php echo esc_html($r['api_title']); ?></td>
                     <td><?php echo esc_html($r['local_title']); ?></td>
@@ -355,40 +372,36 @@ class TEC_API_Sync {
         if (empty($opts['api_endpoint']) || empty($opts['teams'])) return [];
 
         foreach ($opts['teams'] as $team) {
-            $url = add_query_arg(['typ' => 'team', 'list' => 'all', 'id' => $team['id']], $opts['api_endpoint']);
+            $url = add_query_arg(['typ'=>'team','list'=>'all','id'=>$team['id']], $opts['api_endpoint']);
             $response = wp_remote_get($url);
             if (is_wp_error($response)) continue;
             $xml = simplexml_load_string(wp_remote_retrieve_body($response));
             if (!$xml || empty($xml->Spiel)) continue;
 
             $spiele = $xml->Spiel;
-            $team_events = [];
-
             if (!empty($team['is_tournament'])) {
-                // Gruppiere nach Datum & Spielort
                 $grouped = [];
                 foreach ($spiele as $spiel) {
-                    $datum = (string)$spiel->datum;
+                    $day = date('Y-m-d', strtotime((string)$spiel->datum));
                     $ort = (string)$spiel->spielort;
-                    $day = date('Y-m-d', strtotime($datum));
-                    $key = $day . '|' . $ort;
+                    $key = $day.'|'.$ort;
                     if (!isset($grouped[$key])) $grouped[$key] = [];
                     $grouped[$key][] = $spiel;
                 }
-                foreach ($grouped as $key => $spieleTag) {
-                    [$day, $ort] = explode('|', $key);
+                foreach ($grouped as $key=>$spieleTag) {
+                    [$day,$ort] = explode('|',$key);
                     $times = array_map(fn($s)=>strtotime((string)$s->datum), $spieleTag);
                     $start = min($times);
-                    $end = max($times) + 3600;
+                    $end = max($times)+3600;
                     $events[] = [
-                        'title' => $team['prefix'] . ': Turnier in ' . $ort,
-                        'start' => date('Y-m-d H:i:s', $start),
-                        'end' => date('Y-m-d H:i:s', $end),
-                        'venue' => $ort,
-                        'team_prefix' => $team['prefix'],
-                        'category_id' => $team['category'],
-                        'category_name' => get_term($team['category'])->name ?? '',
-                        'is_tournament' => true
+                        'title'=>$team['prefix'].': Turnier in '.$ort,
+                        'start'=>date('Y-m-d H:i:s',$start),
+                        'end'=>date('Y-m-d H:i:s',$end),
+                        'venue'=>$ort,
+                        'team_prefix'=>$team['prefix'],
+                        'category_id'=>$team['category'],
+                        'category_name'=>get_term($team['category'])->name ?? '',
+                        'is_tournament'=>true
                     ];
                 }
             } else {
@@ -398,14 +411,14 @@ class TEC_API_Sync {
                     $gast = (string)$spiel->gast;
                     $ort = (string)$spiel->spielort;
                     $events[] = [
-                        'title' => $team['prefix'] . ': ' . $heim . ' – ' . $gast,
-                        'start' => date('Y-m-d H:i:s', strtotime($datum)),
-                        'end' => date('Y-m-d H:i:s', strtotime($datum)),
-                        'venue' => $ort,
-                        'team_prefix' => $team['prefix'],
-                        'category_id' => $team['category'],
-                        'category_name' => get_term($team['category'])->name ?? '',
-                        'is_tournament' => false
+                        'title'=>$team['prefix'].': '.$heim.' – '.$gast,
+                        'start'=>date('Y-m-d H:i:s',strtotime($datum)),
+                        'end'=>date('Y-m-d H:i:s',strtotime($datum)),
+                        'venue'=>$ort,
+                        'team_prefix'=>$team['prefix'],
+                        'category_id'=>$team['category'],
+                        'category_name'=>get_term($team['category'])->name ?? '',
+                        'is_tournament'=>false
                     ];
                 }
             }
@@ -413,43 +426,48 @@ class TEC_API_Sync {
         return $events;
     }
 
-    private function get_local_events($opts) {
+    private function get_local_events($opts, $team_cat_ids) {
         $args = [
-            'post_type' => 'tribe_events',
-            'posts_per_page' => -1,
-            'post_status' => 'publish',
-            'meta_query' => [
-                [
-                    'key' => '_EventStartDate',
-                    'value' => [$opts['start_date'] . ' 00:00:00', $opts['end_date'] . ' 23:59:59'],
-                    'compare' => 'BETWEEN',
-                    'type' => 'DATETIME'
-                ]
-            ]
+            'post_type'=>'tribe_events',
+            'posts_per_page'=>-1,
+            'post_status'=>'publish',
+            'meta_query'=>[[
+                'key'=>'_EventStartDate',
+                'value'=>[$opts['start_date'].' 00:00:00',$opts['end_date'].' 23:59:59'],
+                'compare'=>'BETWEEN','type'=>'DATETIME'
+            ]],
+            'tax_query'=>[[
+                'taxonomy'=>'tribe_events_cat','field'=>'term_id','terms'=>$team_cat_ids,'operator'=>'IN'
+            ]]
         ];
         return get_posts($args);
     }
 
-    private function find_match($api_event, $local_events) {
-        foreach ($local_events as $local) {
-            if ($this->is_same_event($api_event, $local)) return $local;
+    private function find_match($api_event,$local_events){
+        foreach($local_events as $local){
+            if($this->is_same_event($api_event,$local)) return $local;
         }
         return null;
     }
 
-    private function is_same_event($api_event, $local) {
-        $local_date = get_post_meta($local->ID, '_EventStartDate', true);
-        $local_day = date('Y-m-d', strtotime($local_date));
-        $api_day = date('Y-m-d', strtotime($api_event['start']));
-
-        if ($api_event['is_tournament']) {
-            // Match nach Datum + Kategorie
-            $cats = wp_get_post_terms($local->ID, 'tribe_events_cat', ['fields' => 'ids']);
-            return ($local_day === $api_day && in_array($api_event['category_id'], $cats));
-        } else {
-            // Match nach Titel + Datum
-            return (strcasecmp($local->post_title, $api_event['title']) === 0 && $local_day === $api_day);
+    private function is_same_event($api_event,$local){
+        $local_date = get_post_meta($local->ID,'_EventStartDate',true);
+        $local_day = date('Y-m-d',strtotime($local_date));
+        $api_day = date('Y-m-d',strtotime($api_event['start']));
+        if($api_event['is_tournament']){
+            $cats = wp_get_post_terms($local->ID,'tribe_events_cat',['fields'=>'ids']);
+            return ($local_day===$api_day && in_array($api_event['category_id'],$cats));
+        }else{
+            return (strcasecmp($local->post_title,$api_event['title'])===0 && $local_day===$api_day);
         }
+    }
+
+    // Vorbereitete Methoden für später
+    public function tec_sync_run_comparison(){
+        // Platzhalter für Vergleichs-Logik
+    }
+    public function tec_sync_apply_changes(){
+        // Platzhalter für Erstellen/Aktualisieren/Löschen von Events
     }
 }
 
