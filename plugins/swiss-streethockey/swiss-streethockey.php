@@ -540,10 +540,7 @@ class TEC_API_Sync_Cron extends TEC_API_Sync {
                     wp_reset_postdata();
 
 
-                    $log[] = "✅ Venue id: ".$venue_id;
-                    $log[] = "✅ Category : ".term_exists((int)$event['category_id'], 'tribe_events_cat');
-
-                    /*
+                    
                     $post_id = wp_insert_post([
                         'post_title' => $event['title'],
                         'post_type' => 'tribe_events',
@@ -552,33 +549,39 @@ class TEC_API_Sync_Cron extends TEC_API_Sync {
                     if ($post_id) {
                         update_post_meta($post_id, '_EventStartDate', $event['start']);
                         update_post_meta($post_id, '_EventEndDate', $event['end']);
-                        $venue_post = get_page_by_title($venue_name, OBJECT, 'tribe_venue');
-                        
-                        if (!$venue_post) {
-                            // Venue erstellen, falls sie nicht existiert
-                            $venue_id = wp_insert_post([
-                                'post_title'  => $venue_name,
+                        if (empty($venue_id)) {
+                            $new_venue = wp_insert_post([
+                                'post_title'  => wp_strip_all_tags($venue_name),
                                 'post_status' => 'publish',
                                 'post_type'   => 'tribe_venue',
+                                'post_content'=> '', // optional: hier könntest du Adresse o.ä. anlegen, falls vorhanden
                             ]);
-                        } else {
-                            $venue_id = $venue_post->ID;
+
+                            if (!is_wp_error($new_venue) && $new_venue) {
+                                $venue_id = (int) $new_venue;
+                            } else {
+                                // Fehler beim Anlegen -> ins Log schreiben, aber weiterfahren
+                                $log[] = "⚠️ Venue konnte nicht erstellt werden: " . (is_wp_error($new_venue) ? $new_venue->get_error_message() : 'unknown error');
+                            }
                         }
 
-                        // Wenn erfolgreich, mit Event verknüpfen
-                        if (!empty($venue_id) && !is_wp_error($venue_id)) {
+                        // Venue-ID dem Event zuweisen, falls vorhanden
+                        if (!empty($venue_id)) {
                             update_post_meta($post_id, '_EventVenueID', $venue_id);
+                            $log[] = "📍 Venue zugewiesen: " . esc_html($venue_name) . " (ID: $venue_id) für Event " . esc_html($event['title']);
+                        } else {
+                            $log[] = "⚠️ Keine Venue-ID gefunden/erstellt für Event " . esc_html($event['title']) . " (Venue: " . esc_html($venue_name) . ")";
                         }
 
                         $term_ids = [];
 
                         // Team-Kategorie prüfen
-                        if (term_exists($event['category_id'], 'tribe_events_cat')) {
+                        if (term_exists((int)$event['category_id'], 'tribe_events_cat')) {
                             $term_ids[] = (int)$event['category_id'];
                         }
 
                         // Allgemeine Kategorie hinzufügen
-                        if (!empty($opts['general_category']) && term_exists($opts['general_category'], 'tribe_events_cat')) {
+                        if (!empty($opts['general_category']) && term_exists((int)$opts['general_category'], 'tribe_events_cat')) {
                             $term_ids[] = (int)$opts['general_category'];
                         }
 
