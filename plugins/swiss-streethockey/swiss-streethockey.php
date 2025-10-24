@@ -491,12 +491,13 @@ class TEC_API_Sync_Cron extends TEC_API_Sync {
     }
 
     public function run_cron_sync() {
+    $log = get_option($this->log_option, []);
+    
+    try {
         $opts = get_option($this->option_name, []);
         $api_events = $this->fetch_api_events($opts);
         $team_cat_ids = array_map(fn($t)=>$t['category'], $opts['teams']);
         $local_events = $this->get_local_events($opts, $team_cat_ids);
-
-        $log = [];
 
         // Neue Events anlegen
         foreach ($api_events as $event) {
@@ -518,7 +519,7 @@ class TEC_API_Sync_Cron extends TEC_API_Sync {
             }
         }
 
-        // Lokale Events in Papierkorb verschieben, die zuviel sind
+        // Lokale Events in Papierkorb verschieben
         foreach ($local_events as $local) {
             $found = false;
             foreach ($api_events as $event) {
@@ -529,9 +530,14 @@ class TEC_API_Sync_Cron extends TEC_API_Sync {
                 $log[] = "🗑️ Event verschoben in Papierkorb: <a href='".get_edit_post_link($local->ID)."'>".$local->post_title."</a>";
             }
         }
-
-        update_option($this->log_option, $log);
+        
+    } catch (Exception $e) {
+        $log[] = "⚠️ Fehler beim Cron: ".$e->getMessage();
     }
+
+    update_option($this->log_option, $log);
+    }
+
 
     public function log_page() {
         add_submenu_page('tec-sync','TEC Sync Log','Sync Log','manage_options', 'tec-sync-log', function(){
