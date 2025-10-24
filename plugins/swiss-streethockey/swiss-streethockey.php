@@ -590,7 +590,7 @@ class TEC_API_Sync_Cron extends TEC_API_Sync {
                         }
                         $log[] = "✅ Neues Event erstellt: <a href='".get_edit_post_link($post_id)."'>".$event['title']."</a>";
                     }
-                    */
+                    
                 }
             }
 
