@@ -473,7 +473,7 @@ class TEC_API_Sync {
     public function tec_sync_apply_changes(){}
 }
 
-new TEC_API_Sync();
+//new TEC_API_Sync();
 
 
 class TEC_API_Sync_Cron extends TEC_API_Sync {
