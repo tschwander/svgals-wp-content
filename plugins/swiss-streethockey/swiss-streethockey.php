@@ -195,200 +195,261 @@ class TEC_API_Sync {
     private $option_name = 'tec_sync_options';
 
     public function __construct() {
-        add_action('admin_menu', array($this, 'admin_menu'));
-        add_action('admin_init', array($this, 'settings_init'));
+        add_action('admin_menu', [$this, 'register_menu']);
+        add_action('admin_init', [$this, 'register_settings']);
     }
 
-    public function admin_menu() {
-        add_menu_page(
-            'TEC Sync',
-            'TEC Sync',
-            'manage_options',
-            'tec-sync',
-            array($this, 'admin_page'),
-            'dashicons-update',
-            56
-        );
+    public function register_menu() {
+        add_menu_page('TEC Sync', 'TEC Sync', 'manage_options', 'tec-sync', [$this, 'settings_page'], 'dashicons-update', 20);
     }
 
-    public function settings_init() {
-        register_setting('tec_sync_group', $this->option_name, array($this, 'sanitize_options'));
-
-        add_settings_section('tec_sync_section_main', 'Haupteinstellungen', null, 'tec-sync');
-
-        add_settings_field('api_endpoint', 'API Endpoint', array($this, 'field_api_endpoint'), 'tec-sync', 'tec_sync_section_main');
-        add_settings_field('api_key', 'API Key (optional)', array($this, 'field_api_key'), 'tec-sync', 'tec_sync_section_main');
-        add_settings_field('start_date', 'Startdatum', array($this, 'field_start_date'), 'tec-sync', 'tec_sync_section_main');
-        add_settings_field('end_date', 'Enddatum', array($this, 'field_end_date'), 'tec-sync', 'tec_sync_section_main');
-        add_settings_field('store_category', 'Kategorie (Term ID) zum Speichern', array($this, 'field_store_category'), 'tec-sync', 'tec_sync_section_main');
-
-        add_settings_field('teams', 'Teams', array($this, 'field_teams'), 'tec-sync', 'tec_sync_section_main');
+    public function register_settings() {
+        register_setting('tec_sync_group', $this->option_name);
     }
 
-    public function sanitize_options($input) {
-        $out = get_option($this->option_name, array());
-        $out['api_endpoint'] = isset($input['api_endpoint']) ? esc_url_raw($input['api_endpoint']) : '';
-        $out['api_key'] = isset($input['api_key']) ? sanitize_text_field($input['api_key']) : '';
-        $out['start_date'] = isset($input['start_date']) ? sanitize_text_field($input['start_date']) : '';
-        $out['end_date'] = isset($input['end_date']) ? sanitize_text_field($input['end_date']) : '';
-        $out['store_category'] = isset($input['store_category']) ? absint($input['store_category']) : 0;
+    public function settings_page() {
+        $opts = get_option($this->option_name, [
+            'api_endpoint' => '',
+            'start_date' => '',
+            'end_date' => '',
+            'teams' => []
+        ]);
 
-        if (isset($input['teams_json'])) {
-            $teams = json_decode(wp_unslash($input['teams_json']), true);
-            if (!is_array($teams)) $teams = array();
-            foreach ($teams as $k => $t) {
-                $teams[$k]['id'] = isset($t['id']) ? sanitize_text_field($t['id']) : '';
-                $teams[$k]['prefix'] = isset($t['prefix']) ? sanitize_text_field($t['prefix']) : '';
+        if (isset($_POST['tec_sync_preview'])) {
+            $preview = $this->generate_preview($opts);
+        }
+        ?>
+        <div class="wrap">
+            <h1>TEC API Sync</h1>
+            <form method="post" action="options.php">
+                <?php settings_fields('tec_sync_group'); ?>
+                <h2>Allgemeine Einstellungen</h2>
+                <table class="form-table">
+                    <tr>
+                        <th><label for="api_endpoint">API Endpoint</label></th>
+                        <td><input type="text" name="<?php echo $this->option_name; ?>[api_endpoint]" value="<?php echo esc_attr($opts['api_endpoint']); ?>" class="regular-text" /></td>
+                    </tr>
+                    <tr>
+                        <th><label for="start_date">Startdatum</label></th>
+                        <td><input type="date" name="<?php echo $this->option_name; ?>[start_date]" value="<?php echo esc_attr($opts['start_date']); ?>" /></td>
+                    </tr>
+                    <tr>
+                        <th><label for="end_date">Enddatum</label></th>
+                        <td><input type="date" name="<?php echo $this->option_name; ?>[end_date]" value="<?php echo esc_attr($opts['end_date']); ?>" /></td>
+                    </tr>
+                </table>
+
+                <h2>Teams</h2>
+                <table class="widefat" id="tec-sync-teams">
+                    <thead><tr><th>Team ID</th><th>Titel-Präfix</th><th>Kategorie</th><th>Turnier</th><th></th></tr></thead>
+                    <tbody>
+                    <?php $teams = is_array($opts['teams']) ? $opts['teams'] : [];
+                    $event_cats = get_terms(['taxonomy' => 'tribe_events_cat', 'hide_empty' => false]);
+                    foreach ($teams as $i => $team): ?>
+                        <tr>
+                            <td><input type="text" name="<?php echo $this->option_name; ?>[teams][<?php echo $i; ?>][id]" value="<?php echo esc_attr($team['id']); ?>" /></td>
+                            <td><input type="text" name="<?php echo $this->option_name; ?>[teams][<?php echo $i; ?>][prefix]" value="<?php echo esc_attr($team['prefix']); ?>" /></td>
+                            <td>
+                                <select name="<?php echo $this->option_name; ?>[teams][<?php echo $i; ?>][category]">
+                                    <?php foreach ($event_cats as $cat): ?>
+                                        <option value="<?php echo $cat->term_id; ?>" <?php selected($team['category'], $cat->term_id); ?>><?php echo esc_html($cat->name); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </td>
+                            <td><input type="checkbox" name="<?php echo $this->option_name; ?>[teams][<?php echo $i; ?>][is_tournament]" value="1" <?php checked(!empty($team['is_tournament'])); ?> /></td>
+                            <td><span class="delete-row" style="color:red;cursor:pointer;">✕</span></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+                <p><button type="button" class="button" id="add-team">Team hinzufügen</button></p>
+                <script>
+                document.getElementById('add-team').addEventListener('click', function(){
+                    const table = document.querySelector('#tec-sync-teams tbody');
+                    const index = table.rows.length;
+                    const newRow = document.createElement('tr');
+                    newRow.innerHTML = `
+                        <td><input type="text" name="<?php echo $this->option_name; ?>[teams][${index}][id]" /></td>
+                        <td><input type="text" name="<?php echo $this->option_name; ?>[teams][${index}][prefix]" /></td>
+                        <td><select name="<?php echo $this->option_name; ?>[teams][${index}][category]">
+                            <?php foreach ($event_cats as $cat): ?>
+                                <option value="<?php echo $cat->term_id; ?>"><?php echo esc_html($cat->name); ?></option>
+                            <?php endforeach; ?>
+                        </select></td>
+                        <td><input type="checkbox" name="<?php echo $this->option_name; ?>[teams][${index}][is_tournament]" value="1" /></td>
+                        <td><span class="delete-row" style="color:red;cursor:pointer;">✕</span></td>`;
+                    table.appendChild(newRow);
+                });
+                document.addEventListener('click', e => {
+                    if(e.target.classList.contains('delete-row')) e.target.closest('tr').remove();
+                });
+                </script>
+
+                <?php submit_button(); ?>
+            </form>
+
+            <form method="post">
+                <p><input type="submit" name="tec_sync_preview" class="button button-primary" value="Vorschau anzeigen"></p>
+            </form>
+
+            <?php if (!empty($preview)) echo $preview; ?>
+        </div>
+        <?php
+    }
+
+    private function generate_preview($opts) {
+        $api_events = $this->fetch_api_events($opts);
+        $local_events = $this->get_local_events($opts);
+
+        $rows = [];
+        foreach ($api_events as $event) {
+            $match = $this->find_match($event, $local_events);
+            $rows[] = [
+                'team' => $event['team_prefix'],
+                'category' => $event['category_name'],
+                'is_tournament' => $event['is_tournament'],
+                'api_title' => $event['title'],
+                'local_title' => $match ? $match->post_title : '—',
+                'status' => $match ? '✅ Match' : '⚠️ Fehlt lokal'
+            ];
+        }
+        foreach ($local_events as $local) {
+            $found = false;
+            foreach ($api_events as $event) {
+                if ($this->is_same_event($event, $local)) { $found = true; break; }
             }
-            $out['teams'] = $teams;
+            if (!$found) {
+                $rows[] = [
+                    'team' => '-',
+                    'category' => '-',
+                    'is_tournament' => false,
+                    'api_title' => '—',
+                    'local_title' => $local->post_title,
+                    'status' => '🗑️ Nur lokal vorhanden'
+                ];
+            }
         }
 
-        return $out;
+        ob_start(); ?>
+        <h2>Vorschau</h2>
+        <table class="widefat">
+            <thead><tr><th>Team</th><th>Kategorie</th><th>Turnier</th><th>API Event</th><th>Lokales Event</th><th>Status</th></tr></thead>
+            <tbody>
+            <?php foreach ($rows as $r): ?>
+                <tr>
+                    <td><?php echo esc_html($r['team']); ?></td>
+                    <td><?php echo esc_html($r['category']); ?></td>
+                    <td><?php echo $r['is_tournament'] ? '✓' : '–'; ?></td>
+                    <td><?php echo esc_html($r['api_title']); ?></td>
+                    <td><?php echo esc_html($r['local_title']); ?></td>
+                    <td><?php echo esc_html($r['status']); ?></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+        <?php return ob_get_clean();
     }
 
-    public function field_api_endpoint() {
-        $opts = get_option($this->option_name, array());
-        printf('<input type="text" name="%s[api_endpoint]" value="%s" style="width:100%%">', esc_attr($this->option_name), esc_attr(isset($opts['api_endpoint']) ? $opts['api_endpoint'] : ''));
-    }
+    private function fetch_api_events($opts) {
+        $events = [];
+        if (empty($opts['api_endpoint']) || empty($opts['teams'])) return [];
 
-    public function field_api_key() {
-        $opts = get_option($this->option_name, array());
-        printf('<input type="text" name="%s[api_key]" value="%s" style="width:100%%">', esc_attr($this->option_name), esc_attr(isset($opts['api_key']) ? $opts['api_key'] : ''));
-    }
+        foreach ($opts['teams'] as $team) {
+            $url = add_query_arg(['typ' => 'team', 'list' => 'all', 'id' => $team['id']], $opts['api_endpoint']);
+            $response = wp_remote_get($url);
+            if (is_wp_error($response)) continue;
+            $xml = simplexml_load_string(wp_remote_retrieve_body($response));
+            if (!$xml || empty($xml->Spiel)) continue;
 
-    public function field_start_date() {
-        $opts = get_option($this->option_name, array());
-        printf('<input type="date" name="%s[start_date]" value="%s">', esc_attr($this->option_name), esc_attr(isset($opts['start_date']) ? $opts['start_date'] : ''));
-        echo '<p class="description">Startdatum des Zeitraums, über den Events abgeglichen werden.</p>';
-    }
+            $spiele = $xml->Spiel;
+            $team_events = [];
 
-    public function field_end_date() {
-        $opts = get_option($this->option_name, array());
-        printf('<input type="date" name="%s[end_date]" value="%s">', esc_attr($this->option_name), esc_attr(isset($opts['end_date']) ? $opts['end_date'] : ''));
-        echo '<p class="description">Enddatum des Zeitraums, über den Events abgeglichen werden.</p>';
-    }
-
-    public function field_store_category() {
-        $opts = get_option($this->option_name, array());
-        printf('<input type="number" min="0" name="%s[store_category]" value="%s">', esc_attr($this->option_name), esc_attr(isset($opts['store_category']) ? $opts['store_category'] : 0));
-    }
-
-    public function field_teams() {
-        $opts = get_option($this->option_name, array());
-        $teams = isset($opts['teams']) && is_array($opts['teams']) ? $opts['teams'] : array(array('id' => '', 'prefix' => ''));
-
-        echo '<div id="tec-teams-wrap">';
-        echo '<table class="widefat"><thead><tr><th>Team ID</th><th>Titel-Präfix</th><th></th></tr></thead><tbody id="tec-teams-body">';
-        foreach ($teams as $t) {
-            $id = esc_attr($t['id']);
-            $prefix = esc_attr($t['prefix']);
-            echo "<tr><td><input type='text' class='team-id' value='{$id}'></td><td><input type='text' class='team-prefix' value='{$prefix}'></td><td><button class='button remove-team' type='button'>Entfernen</button></td></tr>";
+            if (!empty($team['is_tournament'])) {
+                // Gruppiere nach Datum & Spielort
+                $grouped = [];
+                foreach ($spiele as $spiel) {
+                    $datum = (string)$spiel->datum;
+                    $ort = (string)$spiel->spielort;
+                    $day = date('Y-m-d', strtotime($datum));
+                    $key = $day . '|' . $ort;
+                    if (!isset($grouped[$key])) $grouped[$key] = [];
+                    $grouped[$key][] = $spiel;
+                }
+                foreach ($grouped as $key => $spieleTag) {
+                    [$day, $ort] = explode('|', $key);
+                    $times = array_map(fn($s)=>strtotime((string)$s->datum), $spieleTag);
+                    $start = min($times);
+                    $end = max($times) + 3600;
+                    $events[] = [
+                        'title' => $team['prefix'] . ': Turnier in ' . $ort,
+                        'start' => date('Y-m-d H:i:s', $start),
+                        'end' => date('Y-m-d H:i:s', $end),
+                        'venue' => $ort,
+                        'team_prefix' => $team['prefix'],
+                        'category_id' => $team['category'],
+                        'category_name' => get_term($team['category'])->name ?? '',
+                        'is_tournament' => true
+                    ];
+                }
+            } else {
+                foreach ($spiele as $spiel) {
+                    $datum = (string)$spiel->datum;
+                    $heim = (string)$spiel->heim;
+                    $gast = (string)$spiel->gast;
+                    $ort = (string)$spiel->spielort;
+                    $events[] = [
+                        'title' => $team['prefix'] . ': ' . $heim . ' – ' . $gast,
+                        'start' => date('Y-m-d H:i:s', strtotime($datum)),
+                        'end' => date('Y-m-d H:i:s', strtotime($datum)),
+                        'venue' => $ort,
+                        'team_prefix' => $team['prefix'],
+                        'category_id' => $team['category'],
+                        'category_name' => get_term($team['category'])->name ?? '',
+                        'is_tournament' => false
+                    ];
+                }
+            }
         }
-        echo '</tbody></table>';
-        echo '<p><button id="add-team" class="button" type="button">Team hinzufügen</button></p>';
-
-        $teams_json = esc_attr(json_encode($teams));
-        printf('<input type="hidden" id="tec-teams-json" name="%s[teams_json]" value="%s">', esc_attr($this->option_name), $teams_json);
-
-        echo "<script>(function(){const tbody=document.getElementById('tec-teams-body');const addBtn=document.getElementById('add-team');const jsonInput=document.getElementById('tec-teams-json');function saveJson(){const rows=tbody.querySelectorAll('tr');const arr=Array.from(rows).map(r=>({id:r.querySelector('.team-id').value,prefix:r.querySelector('.team-prefix').value}));jsonInput.value=JSON.stringify(arr);}addBtn.addEventListener('click',function(){const tr=document.createElement('tr');tr.innerHTML='<td><input type=\'text\' class=\'team-id\'></td><td><input type=\'text\' class=\'team-prefix\'></td><td><button class=\'button remove-team\' type=\'button\'>Entfernen</button></td>';tbody.appendChild(tr);attachRemove(tr);saveJson();});function attachRemove(tr){const btn=tr.querySelector('.remove-team');btn.addEventListener('click',()=>{tr.remove();saveJson();});['change','input'].forEach(ev=>{tr.querySelectorAll('input').forEach(i=>i.addEventListener(ev,saveJson));});}tbody.querySelectorAll('tr').forEach(r=>attachRemove(r));document.querySelector('form').addEventListener('submit',saveJson);})();</script>";
-        echo '</div>';
-    }
-
-    public function admin_page() {
-        if (!current_user_can('manage_options')) return;
-        echo '<div class="wrap"><h1>TEC API Sync</h1>';
-        echo '<form method="post" action="options.php">';
-        settings_fields('tec_sync_group');
-        do_settings_sections('tec-sync');
-        submit_button('Einstellungen speichern');
-        echo '</form>';
-
-        echo '<h2>Sync-Vorschau</h2><form method="post">';
-        wp_nonce_field('tec_sync_preview', 'tec_sync_preview_nonce');
-        echo '<p><input type="submit" name="tec_preview_run" class="button button-primary" value="Vorschau anzeigen"></p></form>';
-
-        if (isset($_POST['tec_preview_run']) && wp_verify_nonce($_POST['tec_sync_preview_nonce'], 'tec_sync_preview')) {
-            echo $this->render_preview_table();
-        }
-        echo '</div>';
-    }
-
-    private function fetch_api_events($team_id, $start_date, $end_date) {
-        $opts = get_option($this->option_name, array());
-        if (empty($opts['api_endpoint'])) return array();
-        $url = add_query_arg(array('team_id'=>$team_id,'start'=>$start_date,'end'=>$end_date), $opts['api_endpoint']);
-        $args = array('timeout'=>20);
-        if (!empty($opts['api_key'])) $args['headers'] = array('Authorization'=>'Bearer '.$opts['api_key']);
-        $res = wp_remote_get($url,$args);
-        if (is_wp_error($res)) return array();
-        $data = json_decode(wp_remote_retrieve_body($res), true);
-        return is_array($data)?$data:array();
-    }
-
-    private function get_local_events($start_date, $end_date) {
-        $args = array('post_type'=>'tribe_events','posts_per_page'=>-1,'meta_query'=>array(array('key'=>'_EventStartDate','value'=>array($start_date.' 00:00:00',$end_date.' 23:59:59'),'compare'=>'BETWEEN','type'=>'DATETIME')));
-        $q = new WP_Query($args);
-        $events = array();
-        while($q->have_posts()){ $q->the_post(); $id=get_the_ID(); $events[] = array('id'=>$id,'title'=>get_the_title(),'start'=>get_post_meta($id,'_EventStartDate',true),'categories'=>wp_get_post_terms($id,'tribe_events_cat',array('fields'=>'names'))); }
-        wp_reset_postdata();
         return $events;
     }
 
-    private function match_events($api_event, $local_events) {
-        $api_title = trim($api_event['title']);
-        $api_cat = isset($api_event['category']) ? $api_event['category'] : '';
-        $api_start = isset($api_event['start']) ? $api_event['start'] : '';
-        foreach ($local_events as $le) {
-            $title_match = (strcasecmp(trim($le['title']), $api_title) === 0);
-            $ld = substr($le['start'],0,10);
-            $ad = substr($api_start,0,10);
-            $date_match = ($ld === $ad);
-            $cat_match = in_array($api_cat, $le['categories']);
-            if ($title_match && $date_match && $cat_match) return array($le);
-        }
-        return array();
+    private function get_local_events($opts) {
+        $args = [
+            'post_type' => 'tribe_events',
+            'posts_per_page' => -1,
+            'post_status' => 'publish',
+            'meta_query' => [
+                [
+                    'key' => '_EventStartDate',
+                    'value' => [$opts['start_date'] . ' 00:00:00', $opts['end_date'] . ' 23:59:59'],
+                    'compare' => 'BETWEEN',
+                    'type' => 'DATETIME'
+                ]
+            ]
+        ];
+        return get_posts($args);
     }
 
-    public function render_preview_table() {
-        $opts = get_option($this->option_name, array());
-        $start = isset($opts['start_date']) && $opts['start_date'] ? $opts['start_date'] : date('Y-m-d');
-        $end = isset($opts['end_date']) && $opts['end_date'] ? $opts['end_date'] : date('Y-m-d', strtotime('+90 days'));
-        $local_events = $this->get_local_events($start, $end);
-
-        $teams = isset($opts['teams']) ? $opts['teams'] : array();
-        $api_events_all = array();
-        foreach ($teams as $t) {
-            if (empty($t['id'])) continue;
-            $fetched = $this->fetch_api_events($t['id'], $start, $end);
-            foreach ($fetched as $fe) {
-                $fe['team_id'] = $t['id'];
-                $fe['team_prefix'] = isset($t['prefix']) ? $t['prefix'] : '';
-                $api_events_all[] = $fe;
-            }
+    private function find_match($api_event, $local_events) {
+        foreach ($local_events as $local) {
+            if ($this->is_same_event($api_event, $local)) return $local;
         }
+        return null;
+    }
 
-        ob_start();
-        echo '<table class="widefat fixed striped">';
-        echo '<thead><tr><th>API Event (Team)</th><th>Datum</th><th>Kategorie</th><th>Lokales Event</th><th>Status</th></tr></thead><tbody>';
-        foreach ($api_events_all as $ae) {
-            $matches = $this->match_events($ae, $local_events);
-            $api_title_display = esc_html($ae['title']);
-            if (!empty($ae['team_prefix'])) $api_title_display = '['.esc_html($ae['team_prefix']).'] '.$api_title_display;
-            $api_date = isset($ae['start']) ? esc_html(substr($ae['start'],0,10)) : '-';
-            $api_cat = isset($ae['category']) ? esc_html($ae['category']) : '-';
+    private function is_same_event($api_event, $local) {
+        $local_date = get_post_meta($local->ID, '_EventStartDate', true);
+        $local_day = date('Y-m-d', strtotime($local_date));
+        $api_day = date('Y-m-d', strtotime($api_event['start']));
 
-            echo '<tr>';
-            echo "<td>{$api_title_display} <br><small>Team: ".esc_html($ae['team_id'])."</small></td><td>{$api_date}</td><td>{$api_cat}</td>";
-            if (!empty($matches)) {
-                $m = $matches[0];
-                echo '<td>' . esc_html($m['title']) . '<br><small>' . esc_html(substr($m['start'],0,10)) . '</small></td><td><mark>Gefunden</mark></td>';
-            } else {
-                echo '<td><em>Kein lokales Event</em></td><td><strong>Fehlt lokal</strong></td>';
-            }
-            echo '</tr>';
+        if ($api_event['is_tournament']) {
+            // Match nach Datum + Kategorie
+            $cats = wp_get_post_terms($local->ID, 'tribe_events_cat', ['fields' => 'ids']);
+            return ($local_day === $api_day && in_array($api_event['category_id'], $cats));
+        } else {
+            // Match nach Titel + Datum
+            return (strcasecmp($local->post_title, $api_event['title']) === 0 && $local_day === $api_day);
         }
-        echo '</tbody></table>';
-        return ob_get_clean();
     }
 }
 
